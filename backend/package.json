@@ -17,6 +17,7 @@
     "@modelcontextprotocol/inspector-cli": "^0.22.0",
     "@modelcontextprotocol/sdk": "^1.15.0",
     "body-parser": "^2.2.2",
+    "chromadb": "^1.10.5",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",

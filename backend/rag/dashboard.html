@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RAG Rules Dashboard</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #0d0d0d; color: #e0e0e0; padding: 36px 40px; }
+    h1 { font-size: 1.5rem; font-weight: 700; color: #fff; margin-bottom: 28px; }
+    h2 { font-size: 1.05rem; font-weight: 600; color: #aaa; margin: 32px 0 14px; }
+
+    .search-bar { display: flex; gap: 10px; margin-bottom: 28px; }
+    .search-bar input {
+      flex: 1; padding: 10px 14px; background: #1a1a1a; border: 1px solid #2e2e2e;
+      border-radius: 7px; color: #e0e0e0; font-size: 0.9rem; outline: none;
+    }
+    .search-bar input:focus { border-color: #6c63ff; }
+    .search-bar button {
+      padding: 10px 22px; background: #6c63ff; color: #fff; border: none;
+      border-radius: 7px; cursor: pointer; font-size: 0.9rem; font-weight: 600;
+    }
+    .search-bar button:hover { background: #5a52d5; }
+
+    .search-result-box {
+      background: #1a1a1a; border: 1px solid #6c63ff; border-radius: 8px;
+      padding: 18px; margin-bottom: 8px;
+    }
+    .search-result-box pre { white-space: pre-wrap; font-size: 0.82rem; color: #ccc; line-height: 1.65; }
+
+    .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+    .card {
+      background: #1a1a1a; border: 1px solid #252525; border-radius: 8px;
+      padding: 18px; transition: border-color 0.15s;
+    }
+    .card:hover { border-color: #6c63ff; }
+    .card-title { font-size: 0.95rem; font-weight: 700; color: #fff; margin-bottom: 5px; }
+    .card-meta { font-size: 0.72rem; color: #666; margin-bottom: 12px; }
+    .card-body {
+      font-size: 0.78rem; color: #bbb; white-space: pre-wrap; word-break: break-word;
+      line-height: 1.55; max-height: 200px; overflow-y: auto;
+    }
+    .status { color: #555; font-size: 0.88rem; padding: 8px 0; }
+  </style>
+</head>
+<body>
+  <h1>RAG Rules Dashboard</h1>
+
+  <div class="search-bar">
+    <input
+      id="query"
+      type="text"
+      placeholder="Type a prompt to find matching rules…"
+      onkeydown="if(event.key==='Enter') search()"
+    />
+    <button onclick="search()">Search</button>
+  </div>
+
+  <div id="search-result"></div>
+
+  <h2>All Rules</h2>
+  <div id="all-rules" class="cards">
+    <p class="status">Loading…</p>
+  </div>
+
+  <script>
+    const API = 'http://localhost:8000';
+
+    async function loadAllRules() {
+      const container = document.getElementById('all-rules');
+      try {
+        const data = await fetch(`${API}/rag-docs`).then(r => r.json());
+
+        if (data.error) {
+          container.innerHTML = `<p class="status">Error: ${data.error} — run <code>node backend/rag/embed.js</code> first.</p>`;
+          return;
+        }
+
+        if (!data.ids || data.ids.length === 0) {
+          container.innerHTML = '<p class="status">Collection is empty — run <code>node backend/rag/embed.js</code> first.</p>';
+          return;
+        }
+
+        container.innerHTML = '';
+        data.ids.forEach((id, i) => {
+          const doc  = data.documents[i] || '';
+          const meta = data.metadatas[i] || {};
+          const preview = doc.length > 400 ? doc.slice(0, 400) + '\n…' : doc;
+          const card = document.createElement('div');
+          card.className = 'card';
+          card.innerHTML = `
+            <div class="card-title">${id}</div>
+            <div class="card-meta">category: <strong>${meta.category || '—'}</strong> &nbsp;·&nbsp; ${meta.filename || id}</div>
+            <pre class="card-body">${preview}</pre>
+          `;
+          container.appendChild(card);
+        });
+      } catch (err) {
+        container.innerHTML = `<p class="status">Could not reach backend at ${API}: ${err.message}</p>`;
+      }
+    }
+
+    async function search() {
+      const query     = document.getElementById('query').value.trim();
+      const container = document.getElementById('search-result');
+      if (!query) { container.innerHTML = ''; return; }
+
+      container.innerHTML = '<p class="status">Searching…</p>';
+      try {
+        const res  = await fetch(`${API}/rag-search`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query }),
+        });
+        const data = await res.json();
+        container.innerHTML = `
+          <h2>Results for &ldquo;${query}&rdquo;</h2>
+          <div class="search-result-box"><pre>${data.results || '(no results)'}</pre></div>
+        `;
+      } catch (err) {
+        container.innerHTML = `<p class="status">Search error: ${err.message}</p>`;
+      }
+    }
+
+    loadAllRules();
+  </script>
+</body>
+</html>

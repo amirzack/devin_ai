@@ -6,6 +6,7 @@ export default function Navbar() {
       <a href="/">Home</a>
       <span className="navbar-brand">⬡ Azki Ai</span>
       <a href="/login">Login</a>
+      <a href="/otp">Otp</a>
     </nav>
   );
 }
