@@ -3,19 +3,26 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
+  "type": "module",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "nodemon index.js"
+    "start": "nodemon index.js",
+    "start:mcp": "node mcp/server.js",
+    "inspector": "mcp-inspector"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@modelcontextprotocol/inspector-cli": "^0.22.0",
+    "@modelcontextprotocol/sdk": "^1.15.0",
     "body-parser": "^2.2.2",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "langfuse": "^3.38.20",
     "nodemon": "^3.1.14",
-    "openai": "^6.42.0"
+    "openai": "^6.42.0",
+    "zod": "^3.25.0"
   }
 }

@@ -1,126 +1,109 @@
 import OpenAI from "openai";
-import { createPage } from "./create_page.js";
-import { updateRouter } from "./router.js";
-import { updateNavbar } from "./navbar.js";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || "sk-bDucgLWvW7BPfW2oO0Pd6R8ekXSP3i68tRJxJ7FGe1S3Ysqx",
+const openai = new OpenAI({
+  apiKey:
+    process.env.OPENAI_API_KEY ||
+    "sk-bDucgLWvW7BPfW2oO0Pd6R8ekXSP3i68tRJxJ7FGe1S3Ysqx",
   baseURL: "https://api.gapgpt.app/v1",
 });
 
-export const DSL_PROMPT = `
-You are a UI agent.
+const SYSTEM_PROMPT = `You are a UI development agent. When the user requests a new page, you MUST call all three tools in order:
+1. create_file — generate a complete, styled React functional component. Use only React (no external libs). Export as default. The "name" must be a single PascalCase word (e.g. "Login", "Dashboard").
+2. update_router — register the route using the same name.
+3. update_navbar — add the nav link using the same name.
 
-Convert user request into JSON intent.
 
-Rules:
-- Detect if user wants: page creation
-- Always assume:
-  - create page file
-  - update router
-  - update navbar
-- "name" must be a SINGLE PascalCase word that identifies the page type only.
-  - Strip all verbs (create, make, build, add), adjectives (dark, glossy, beautiful, simple), and the word "page".
-  - Examples: "Create Dark glossy Login Page" → "Login", "Build a modern Dashboard" → "Dashboard", "Add Contact Form page" → "ContactForm"
+RULES:
+- Use only inline styles or CSS variables from the global stylesheet
+- Do NOT create or import any external CSS files
+- Do NOT use any CSS modules
+- All styling must be self-contained inside the JSX file
+- Apply any styling adjectives (dark, glossy, minimal, etc.) inside the component code itself.`;
 
-Return ONLY valid JSON with no markdown or code blocks:
-
-{
-  "intent": "...",
-  "name": "Login",
-  "actions": ["create_file", "update_router", "update_navbar"]
-}
-`;
-
-function parseJSON(raw) {
-  const cleaned = raw
-    .replace(/^```(?:json)?\s*/m, "")
-    .replace(/\s*```\s*$/m, "")
-    .trim();
-  return JSON.parse(cleaned);
-}
-
-function sanitizeName(raw) {
-  const cleaned = raw
-    .replace(/^(create|make|build|add|generate|design|a|an|the)\s+/gi, "")
-    .replace(/\s+page$/i, "")
-    .trim();
-
-  const words = cleaned
-    .split(/\s+/)
-    .map((w) => w.replace(/[^a-zA-Z0-9]/g, ""))
-    .filter(Boolean)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1));
-
-  return words.join("") || "Page";
-}
-
-async function generatePageCode(name, prompt) {
-  const res = await client.chat.completions.create({
-    model: "gpt-4o-mini",
-    max_tokens: 2048,
-    messages: [
-      {
-        role: "user",
-        content: `Generate a React functional component for a page called "${name}".
-User request: ${prompt}
-
-Rules:
-- Use only React, no external libraries
-- Export as default function named ${name}
-- Return ONLY the JSX/JS code with no markdown, no code blocks, no explanations`,
-      },
-    ],
-  });
-
-  return res.choices[0].message.content
-    .replace(/^```(?:jsx?|tsx?)?\s*/m, "")
-    .replace(/\s*```\s*$/m, "")
-    .trim();
-}
-
-async function generateDSL(prompt) {
-  const res = await client.chat.completions.create({
-    model: "gpt-4o-mini",
-    max_tokens: 512,
-    messages: [
-      {
-        role: "user",
-        content: `${DSL_PROMPT}\n\nTASK:\n${prompt}`,
-      },
-    ],
-  });
-
-  return res.choices[0].message.content;
+function mcpToOpenAITools(mcpTools) {
+  return mcpTools.map((t) => ({
+    type: "function",
+    function: {
+      name: t.name,
+      description: t.description,
+      parameters: t.inputSchema,
+    },
+  }));
 }
 
 export async function runAgent(prompt, emit = () => {}) {
-  emit("step", { id: "dsl", label: "Analyzing prompt", status: "running" });
-  const raw = await generateDSL(prompt);
-  const plan = parseJSON(raw);
-  emit("step", { id: "dsl", label: "Analyzing prompt", status: "done" });
+  const mcpUrl = new URL(`http://localhost:${process.env.MCP_PORT || 3001}/mcp`);
+  const transport = new StreamableHTTPClientTransport(mcpUrl);
 
-  const actions = plan.actions || [];
-  const name = sanitizeName(plan.name || "");
+  const mcpClient = new Client({ name: "devin-agent", version: "1.0.0" });
+  await mcpClient.connect(transport);
 
-  if (actions.includes("create_file")) {
-    emit("step", { id: "code", label: `Generating ${name} component`, status: "running" });
-    const code = await generatePageCode(name, prompt);
-    createPage(name, code);
-    emit("step", { id: "code", label: `Generating ${name} component`, status: "done" });
+  try {
+    const { tools: mcpToolList } = await mcpClient.listTools();
+    const tools = mcpToOpenAITools(mcpToolList);
+
+    const messages = [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: prompt },
+    ];
+
+    let createdName = null;
+
+    emit("step", { id: "thinking", label: "Planning...", status: "running" });
+
+    while (true) {
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages,
+        tools,
+        tool_choice: "auto",
+      });
+
+      const message = response.choices[0].message;
+      messages.push(message);
+
+      if (!message.tool_calls || message.tool_calls.length === 0) {
+        emit("step", { id: "thinking", label: "Planning...", status: "done" });
+        break;
+      }
+
+      emit("step", { id: "thinking", label: "Planning...", status: "done" });
+
+      for (const tc of message.tool_calls) {
+        const toolName = tc.function.name;
+        const args = JSON.parse(tc.function.arguments);
+
+        const stepLabel =
+          {
+            create_file: `Creating ${args.name ?? ""} component`,
+            update_router: "Updating router",
+            update_navbar: "Updating navbar",
+          }[toolName] ?? toolName;
+
+        emit("step", { id: toolName, label: stepLabel, status: "running" });
+
+        const result = await mcpClient.callTool({
+          name: toolName,
+          arguments: args,
+        });
+        const resultText = result.content?.[0]?.text ?? "done";
+
+        if (toolName === "create_file") createdName = args.name;
+
+        messages.push({
+          role: "tool",
+          tool_call_id: tc.id,
+          content: resultText,
+        });
+
+        emit("step", { id: toolName, label: stepLabel, status: "done" });
+      }
+    }
+
+    return { status: "done", created: createdName, actions: mcpToolList.map((t) => t.name) };
+  } finally {
+    await mcpClient.close();
   }
-
-  if (actions.includes("update_router")) {
-    emit("step", { id: "router", label: "Updating router", status: "running" });
-    updateRouter(name);
-    emit("step", { id: "router", label: "Updating router", status: "done" });
-  }
-
-  if (actions.includes("update_navbar")) {
-    emit("step", { id: "navbar", label: "Updating navbar", status: "running" });
-    updateNavbar(name);
-    emit("step", { id: "navbar", label: "Updating navbar", status: "done" });
-  }
-
-  return { status: "done", created: name, actions };
 }
