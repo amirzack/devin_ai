@@ -1,5 +1,6 @@
+import Login from "./pages/Login.jsx";
 const routes = [
-  { path: "/dark glossy login", element: <Dark glossy Login /> },
+  { path: "/login", element: <Login /> },
 ];
 
 export default routes;

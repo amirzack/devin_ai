@@ -19,12 +19,15 @@ Rules:
   - create page file
   - update router
   - update navbar
+- "name" must be a SINGLE PascalCase word that identifies the page type only.
+  - Strip all verbs (create, make, build, add), adjectives (dark, glossy, beautiful, simple), and the word "page".
+  - Examples: "Create Dark glossy Login Page" → "Login", "Build a modern Dashboard" → "Dashboard", "Add Contact Form page" → "ContactForm"
 
 Return ONLY valid JSON with no markdown or code blocks:
 
 {
   "intent": "...",
-  "name": "...",
+  "name": "Login",
   "actions": ["create_file", "update_router", "update_navbar"]
 }
 `;
@@ -35,6 +38,21 @@ function parseJSON(raw) {
     .replace(/\s*```\s*$/m, "")
     .trim();
   return JSON.parse(cleaned);
+}
+
+function sanitizeName(raw) {
+  const cleaned = raw
+    .replace(/^(create|make|build|add|generate|design|a|an|the)\s+/gi, "")
+    .replace(/\s+page$/i, "")
+    .trim();
+
+  const words = cleaned
+    .split(/\s+/)
+    .map((w) => w.replace(/[^a-zA-Z0-9]/g, ""))
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1));
+
+  return words.join("") || "Page";
 }
 
 async function generatePageCode(name, prompt) {
@@ -83,7 +101,7 @@ export async function runAgent(prompt, emit = () => {}) {
   emit("step", { id: "dsl", label: "Analyzing prompt", status: "done" });
 
   const actions = plan.actions || [];
-  const name = (plan.name || "").replace(/\s+Page$/i, "").trim();
+  const name = sanitizeName(plan.name || "");
 
   if (actions.includes("create_file")) {
     emit("step", { id: "code", label: `Generating ${name} component`, status: "running" });
